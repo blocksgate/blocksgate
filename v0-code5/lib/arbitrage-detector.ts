@@ -1,3 +1,81 @@
+/**
+ * Simple arbitrage detector using 0x price API.
+ * This module fetches indicative prices for a token pair and computes
+ * a basic round-trip profit estimate. It's intentionally lightweight —
+ * replace or extend with multi-DEX comparison and gas modeling in the future.
+ */
+
+type Opportunity = {
+  pair: string
+  baseToken: string
+  quoteToken: string
+  buyPrice: number // quoteToken per baseToken
+  sellPrice: number // quoteToken per baseToken
+  estimatedProfitPct: number
+  timestamp: string
+}
+
+async function fetch0xPrice(buyToken: string, sellToken: string, buyAmountHuman: number) {
+  try {
+    const decimals = Number(process.env.ZEROX_TOKEN_DECIMALS || 18)
+    const buyAmount = Math.floor(buyAmountHuman * Math.pow(10, decimals))
+    const baseUrl = process.env.ZEROX_API_URL ?? 'https://api.0x.org'
+    const url = `${baseUrl}/swap/v1/price?buyToken=${encodeURIComponent(buyToken)}&sellToken=${encodeURIComponent(sellToken)}&buyAmount=${buyAmount}`
+    const res = await fetch(url)
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`0x price error: ${res.status} ${text}`)
+    }
+    const j = await res.json()
+    // prefer explicit price field
+    const price = Number(j?.price ?? NaN)
+    if (!Number.isFinite(price)) {
+      const sellAmount = Number(j?.sellAmount)
+      const buyAmountResp = Number(j?.buyAmount)
+      if (sellAmount && buyAmountResp) return sellAmount / buyAmountResp
+      throw new Error('invalid 0x price response')
+    }
+    return price
+  } catch (err) {
+    console.warn('fetch0xPrice error', err)
+    return NaN
+  }
+}
+
+export async function findArbitrageOpportunities(pairs: Array<{ baseToken: string; quoteToken: string; amount?: number }>, humanAmount = 1): Promise<Opportunity[]> {
+  const out: Opportunity[] = []
+  for (const p of pairs) {
+    const base = p.baseToken
+    const quote = p.quoteToken
+    try {
+      // buy base with quote (quote -> base), then sell base back to quote (base -> quote)
+      const buyPrice = await fetch0xPrice(base, quote, humanAmount)
+      const sellPrice = await fetch0xPrice(quote, base, humanAmount)
+
+      if (!Number.isFinite(buyPrice) || !Number.isFinite(sellPrice)) continue
+
+      // compute naive round-trip: if you can sell base for more quote than you spent buying it
+      // buyPrice is quote per base for acquiring base (i.e. cost), sellPrice is quote per base when selling (i.e. proceeds)
+      const estimatedProfitPct = ((sellPrice - buyPrice) / buyPrice) * 100
+
+      out.push({
+        pair: `${base}/${quote}`,
+        baseToken: base,
+        quoteToken: quote,
+        buyPrice,
+        sellPrice,
+        estimatedProfitPct,
+        timestamp: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.warn('findArbitrageOpportunities pair error', p, err)
+      continue
+    }
+  }
+  // sort by profit desc
+  out.sort((a, b) => b.estimatedProfitPct - a.estimatedProfitPct)
+  return out
+}
 // Real-time arbitrage opportunity detection using 0x Protocol
 
 import { zxClient } from "@/lib/0x-client"
