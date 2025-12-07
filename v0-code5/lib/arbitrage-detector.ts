@@ -12,59 +12,110 @@ type Opportunity = {
   buyPrice: number // quoteToken per baseToken
   sellPrice: number // quoteToken per baseToken
   estimatedProfitPct: number
+  estimatedProfitAfterGasPct: number
   timestamp: string
 }
 
-async function fetch0xPrice(buyToken: string, sellToken: string, buyAmountHuman: number) {
+async function fetch0xQuote(buyToken: string, sellToken: string, buyAmountHuman: number) {
   try {
     const decimals = Number(process.env.ZEROX_TOKEN_DECIMALS || 18)
     const buyAmount = Math.floor(buyAmountHuman * Math.pow(10, decimals))
     const baseUrl = process.env.ZEROX_API_URL ?? 'https://api.0x.org'
-    const url = `${baseUrl}/swap/v1/price?buyToken=${encodeURIComponent(buyToken)}&sellToken=${encodeURIComponent(sellToken)}&buyAmount=${buyAmount}`
+    const url = `${baseUrl}/swap/v1/quote?buyToken=${encodeURIComponent(buyToken)}&sellToken=${encodeURIComponent(sellToken)}&buyAmount=${buyAmount}`
     const res = await fetch(url)
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`0x price error: ${res.status} ${text}`)
+      throw new Error(`0x quote error: ${res.status} ${text}`)
     }
     const j = await res.json()
-    // prefer explicit price field
-    const price = Number(j?.price ?? NaN)
-    if (!Number.isFinite(price)) {
-      const sellAmount = Number(j?.sellAmount)
-      const buyAmountResp = Number(j?.buyAmount)
-      if (sellAmount && buyAmountResp) return sellAmount / buyAmountResp
-      throw new Error('invalid 0x price response')
-    }
-    return price
+    return j
   } catch (err) {
-    console.warn('fetch0xPrice error', err)
-    return NaN
+    console.warn('fetch0xQuote error', err)
+    return null
   }
 }
 
-export async function findArbitrageOpportunities(pairs: Array<{ baseToken: string; quoteToken: string; amount?: number }>, humanAmount = 1): Promise<Opportunity[]> {
-  const out: Opportunity[] = []
+/**
+ * Estimate gas cost in quote token units.
+ * Strategy:
+ *  - use `estimatedGas` and `gasPrice` from 0x quote response when available
+ *  - otherwise use conservative defaults
+ *  - convert native gas cost to quote token using a quick 0x price (ETH/quote)
+ */
+async function estimateGasCostInQuote(quoteResponse: any, quoteToken: string) {
+  try {
+    const estimatedGas = Number(quoteResponse?.estimatedGas) || 200000
+    const gasPrice = Number(quoteResponse?.gasPrice) || Number(process.env.DEFAULT_GAS_GWEI || 30) * 1e9
+
+    // gas cost in native token (e.g., ETH)
+    const gasCostNative = estimatedGas * gasPrice // in wei units
+    const gasCostNativeEth = gasCostNative / 1e18
+
+    // fetch native (ETH) price in quoteToken via 0x simple price
+    const baseUrl = process.env.ZEROX_API_URL ?? 'https://api.0x.org'
+    // attempt to get ETH price in quoteToken
+    const eth = 'ETH'
+    const quote = quoteToken
+    const priceResp = await fetch(`${baseUrl}/swap/v1/price?buyToken=${encodeURIComponent(eth)}&sellToken=${encodeURIComponent(quote)}&buyAmount=${Math.floor(1 * Math.pow(10, Number(process.env.ZEROX_TOKEN_DECIMALS || 18)))}`)
+    let ethPriceInQuote = 0
+    if (priceResp.ok) {
+      const j = await priceResp.json()
+      ethPriceInQuote = Number(j?.price) || 0
+    }
+
+    // fallback: assume ETH price 2000 quote units if unavailable
+    if (!ethPriceInQuote) ethPriceInQuote = Number(process.env.FALLBACK_ETH_PRICE_IN_QUOTE || 2000)
+
+    const gasCostInQuote = gasCostNativeEth * ethPriceInQuote
+    return gasCostInQuote
+  } catch (err) {
+    console.warn('estimateGasCostInQuote error', err)
+    return 0
+  }
+}
+
+export async function findArbitrageOpportunities(pairs: Array<{ baseToken: string; quoteToken: string; amount?: number }>, humanAmount = 1, minProfitPct = 0.2): Promise<Opportunity[]> {
+  const opportunities: Opportunity[] = []
+
   for (const p of pairs) {
     const base = p.baseToken
     const quote = p.quoteToken
-    try {
-      // buy base with quote (quote -> base), then sell base back to quote (base -> quote)
-      const buyPrice = await fetch0xPrice(base, quote, humanAmount)
-      const sellPrice = await fetch0xPrice(quote, base, humanAmount)
+    const amount = p.amount ?? humanAmount
 
+    try {
+      // Get quotes for both legs
+      const buyQuote = await fetch0xQuote(base, quote, amount) // cost to acquire base using quote
+      const sellQuote = await fetch0xQuote(quote, base, amount) // cost to acquire quote using base
+
+      if (!buyQuote || !sellQuote) continue
+
+      const buyPrice = Number(buyQuote?.price) || (Number(buyQuote?.sellAmount) / Number(buyQuote?.buyAmount))
+      const sellPrice = Number(sellQuote?.price) || (Number(sellQuote?.sellAmount) / Number(sellQuote?.buyAmount))
       if (!Number.isFinite(buyPrice) || !Number.isFinite(sellPrice)) continue
 
-      // compute naive round-trip: if you can sell base for more quote than you spent buying it
-      // buyPrice is quote per base for acquiring base (i.e. cost), sellPrice is quote per base when selling (i.e. proceeds)
-      const estimatedProfitPct = ((sellPrice - buyPrice) / buyPrice) * 100
+      const grossProfitPct = ((sellPrice - buyPrice) / buyPrice) * 100
 
-      out.push({
+      // estimate gas for both legs and subtract from profit (in quote token units)
+      const buyGasCost = await estimateGasCostInQuote(buyQuote, quote)
+      const sellGasCost = await estimateGasCostInQuote(sellQuote, quote)
+      const totalGasCostInQuote = buyGasCost + sellGasCost
+
+      // approximate profit in quote token: (sellPrice - buyPrice) * amount
+      const approxProfitInQuote = (sellPrice - buyPrice) * amount
+      const profitAfterGasInQuote = approxProfitInQuote - totalGasCostInQuote
+      const profitAfterGasPct = (profitAfterGasInQuote / (buyPrice * amount)) * 100
+
+      // filter by minProfitPct (after gas)
+      if (profitAfterGasPct < minProfitPct) continue
+
+      opportunities.push({
         pair: `${base}/${quote}`,
         baseToken: base,
         quoteToken: quote,
         buyPrice,
         sellPrice,
-        estimatedProfitPct,
+        estimatedProfitPct: grossProfitPct,
+        estimatedProfitAfterGasPct: profitAfterGasPct,
         timestamp: new Date().toISOString(),
       })
     } catch (err) {
@@ -72,9 +123,9 @@ export async function findArbitrageOpportunities(pairs: Array<{ baseToken: strin
       continue
     }
   }
-  // sort by profit desc
-  out.sort((a, b) => b.estimatedProfitPct - a.estimatedProfitPct)
-  return out
+
+  opportunities.sort((a, b) => b.estimatedProfitAfterGasPct - a.estimatedProfitAfterGasPct)
+  return opportunities
 }
 // Real-time arbitrage opportunity detection using 0x Protocol
 
