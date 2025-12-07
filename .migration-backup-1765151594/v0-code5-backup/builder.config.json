@@ -1,0 +1,6 @@
+{
+  "command": "npm run dev",
+  "serverUrl": "https://www.denwen.io/",
+  "authenticateProxy": false,
+  "commitMode": "commits"
+}
