@@ -14,7 +14,8 @@
     "executor:demo": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --demo",
     "executor:supabase": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --supabase",
     "arbitrage:poll": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/arbitrage-sse-demo-poller.ts",
-    "smoke:test": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/run-arbitrage-smoke.ts"
+    "smoke:test": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/run-arbitrage-smoke.ts",
+    "test:limit-orders": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/test-limit-orders.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
