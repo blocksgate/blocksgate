@@ -1,10 +1,11 @@
 #!/usr/bin/env ts-node
 import dotenv from 'dotenv'
-import path from 'path'
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') })
+// Load .env from the repo root (works in ESM)
+const envPath = new URL('../../.env', import.meta.url).pathname
+dotenv.config({ path: envPath })
 
-import { detectArbitrageOpportunities } from "../../src/lib/arbitrage-detector"
+import { detectArbitrageOpportunities } from "../../src/lib/arbitrage-detector.ts"
 
 async function pollArbitrage() {
   console.log('[arbitrage-poller] Starting continuous arbitrage polling...')
@@ -14,27 +15,22 @@ async function pollArbitrage() {
 
   while (true) {
     try {
-      const now = new Date().toISOString()
       const opportunities = await detectArbitrageOpportunities()
-
       if (opportunities.length > 0) {
         opportunityCount += opportunities.length
-        console.log(`[${now}] Found ${opportunities.length} opportunity(s) - Total: ${opportunityCount}`)
-        opportunities.forEach((opp: any, i: number) => {
-          console.log(`  ${i + 1}. ${opp.baseToken} -> ${opp.quoteToken}: ${opp.expectedProfit}% profit`)
+        console.log(`[${new Date().toISOString()}] Found ${opportunities.length} arbitrage opportunities (total: ${opportunityCount})`)
+        opportunities.slice(0, 3).forEach((opp: any) => {
+          console.log(`  - ${opp.baseToken} -> ${opp.quoteToken}: ${opp.profit}%`)
         })
       } else {
-        console.log(`[${now}] No opportunities found`)
+        console.log(`[${new Date().toISOString()}] No arbitrage opportunities found`)
       }
-    } catch (err) {
-      console.error('[arbitrage-poller] Error:', err)
+    } catch (err: any) {
+      console.error(`[${new Date().toISOString()}] Error:`, err.message)
     }
 
-    await new Promise((r) => setTimeout(r, 10000))
+    await new Promise(resolve => setTimeout(resolve, 10000))
   }
 }
 
-pollArbitrage().catch((err) => {
-  console.error('[arbitrage-poller] Fatal error:', err)
-  process.exit(1)
-})
+pollArbitrage().catch(console.error)

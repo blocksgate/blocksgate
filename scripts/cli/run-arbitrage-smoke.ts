@@ -1,11 +1,12 @@
 #!/usr/bin/env ts-node
 import dotenv from 'dotenv'
-import path from 'path'
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') })
+// Load .env from the repo root (works in ESM)
+const envPath = new URL('../../.env', import.meta.url).pathname
+dotenv.config({ path: envPath })
 
-import { detectArbitrageOpportunities } from "../../src/lib/arbitrage-detector"
-import { quote0xAPI } from "../../src/lib/0x-api-integration"
+import { detectArbitrageOpportunities } from "../../src/lib/arbitrage-detector.ts"
+import { zxClient } from "../../src/lib/0x-client.ts"
 
 async function smokeTest() {
   console.log('[smoke-test] Running arbitrage smoke test...\n')
@@ -24,9 +25,11 @@ async function smokeTest() {
       console.log(`  Quote token: ${opp.quoteToken}`)
 
       try {
-        const quoteResponse = await quote0xAPI(opp.baseToken, opp.quoteToken, '1000000000000000000')
-        if (quoteResponse) {
+        try {
+          const quoteResponse = await zxClient.getQuote(1, opp.baseToken, opp.quoteToken, '1000000000000000000')
           console.log(`  ✓ Got quote: ${quoteResponse.price || 'N/A'}\n`)
+        } catch (e: any) {
+          console.log(`  ! Quote failed (expected in demo): ${e.message}\n`)
         }
       } catch (e) {
         console.log(`  ! Quote failed (expected in demo): ${(e as any).message}\n`)

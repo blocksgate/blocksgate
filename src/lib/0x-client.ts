@@ -1,6 +1,6 @@
 // 0x Protocol Client for swap execution
 
-import { config } from "./config"
+import { config } from "./config.ts"
 
 export interface ZxQuote {
   chainId: number

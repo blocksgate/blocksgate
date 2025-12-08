@@ -129,9 +129,9 @@ export async function findArbitrageOpportunities(pairs: Array<{ baseToken: strin
 }
 // Real-time arbitrage opportunity detection using 0x Protocol
 
-import { zxClient } from "@/lib/0x-client"
+import { zxClient } from "./0x-client.ts"
 import { ethers } from "ethers"
-import { priceFeed } from "@/lib/price-feed"
+import { priceFeed } from "./price-feed.ts"
 
 export interface ArbitrageOpportunity {
   id: string

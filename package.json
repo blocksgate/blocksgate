@@ -11,10 +11,10 @@
     "migrate": "node scripts/db/run-migrations.js",
     "migrate:ts": "ts-node --project tsconfig.json scripts/db/run-migrations.ts",
     "setup": "npm run migrate && npm run migrate:verify",
-    "executor:demo": "ts-node -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --demo",
-    "executor:supabase": "ts-node -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --supabase",
-    "arbitrage:poll": "ts-node -r tsconfig-paths/register scripts/cli/arbitrage-sse-demo-poller.ts",
-    "smoke:test": "ts-node -r tsconfig-paths/register scripts/cli/run-arbitrage-smoke.ts"
+    "executor:demo": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --demo",
+    "executor:supabase": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/order-executor-cli.ts --supabase",
+    "arbitrage:poll": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/arbitrage-sse-demo-poller.ts",
+    "smoke:test": "ts-node --transpile-only -r tsconfig-paths/register scripts/cli/run-arbitrage-smoke.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -88,6 +88,7 @@
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "^5",
     "vitest": "^1.4.3"
